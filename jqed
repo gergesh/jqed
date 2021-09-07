@@ -33,9 +33,9 @@ class JqManager:
         self.loop = loop
 
         self.loop.event_loop.watch_file(self.inp_file.fileno(), self._file_avail_cb)
-        self.inp_data = ''
-        self.last_out_data = ''
-        self.out_data = ''
+        self.inp_data = b''
+        self.last_out_data = b''
+        self.out_data = b''
         self.out_err = ''
         self.scroll_line = 0
 
@@ -55,11 +55,11 @@ class JqManager:
         urwid.connect_signal(inp, 'change', self.respawn_jq)
     
     def _file_avail_cb(self):
-        chunk = os.read(orig_stdin.fileno(), 1024).decode()
+        chunk = os.read(orig_stdin.fileno(), 1024)
         if len(chunk) != 0:
             self.inp_data += chunk
             try:
-                self.jq_proc.stdin.write(chunk.encode())
+                self.jq_proc.stdin.write(chunk)
             except ValueError:
                 # if `self.jq_proc.stdin` was closed
                 pass
@@ -70,7 +70,7 @@ class JqManager:
 
     def toggle_pause(self):
         self.paused = not self.paused
-        if self.out_data != '':
+        if self.out_data != b'':
             self.last_out_data = self.out_data
         if self.prompt_ok:
             self.update_body()
@@ -92,9 +92,9 @@ class JqManager:
             # Ignore spurius calls
             return
 
-        chunk = ''
+        chunk = b''
         while self.jq_proc.stdout in select.select([self.jq_proc.stdout], [], [], 0)[0]:
-            new_chunk = os.read(self.jq_proc.stdout.fileno(), 1024).decode()
+            new_chunk = os.read(self.jq_proc.stdout.fileno(), 1024)
             if len(new_chunk) == 0:
                 break
             chunk += new_chunk
@@ -106,7 +106,7 @@ class JqManager:
         else:
             if self.out_err == '':
                 if loop.screen_size is not None:
-                    new_scroll_line = min(max(len(self.out_data.split('\n')) - int(loop.screen_size[1] / 2), 0), self.scroll_line)
+                    new_scroll_line = min(max(len(self.out_data.split(b'\n')) - int(loop.screen_size[1] / 2), 0), self.scroll_line)
                     if new_scroll_line != self.scroll_line:
                         self.scroll_line = new_scroll_line
                     self.update_body()
@@ -141,8 +141,8 @@ class JqManager:
                 inp.set_caption([('prompt_paused', PAUSED_PROMPT_A), ('prompt_err', PAUSED_PROMPT_B)])
             else:
                 inp.set_caption(('prompt_err', PROMPT))
-        elif self.out_data == '':
-            self.last_out_data = ''
+        elif self.out_data == b'':
+            self.last_out_data = b''
             self.update_body()
 
     def respawn_jq(self, _, query):
@@ -157,9 +157,9 @@ class JqManager:
             self.jq_proc.terminate()
             self.jq_proc.wait()
             err_bar.set_text('')
-        if self.out_data != '' and not self.paused:
+        if self.out_data != b'' and not self.paused:
             self.last_out_data = self.out_data
-        self.out_data = ''
+        self.out_data = b''
         self.out_err = ''
         self.prompt_ok = True
         if self.paused:
@@ -169,10 +169,9 @@ class JqManager:
 
         self.jq_proc = sp.Popen([self._jq_path, query], stdin=sp.PIPE, stdout=sp.PIPE, stderr=sp.PIPE, bufsize=0)
         try:
-            encoded_inp_data = self.inp_data.encode()
             try:
-                for offset in range(0, len(encoded_inp_data), 1024):
-                    self.jq_proc.stdin.write(encoded_inp_data[offset:offset+1024])
+                for offset in range(0, len(self.inp_data), 1024):
+                    self.jq_proc.stdin.write(self.inp_data[offset:offset+1024])
                     self._jq_out_avail_cb()
                     self._jq_err_avail_cb()
                 if self.is_inp_data_done:
@@ -190,9 +189,9 @@ class JqManager:
             height = self.loop.screen_size[1]
 
         if self.out_data and not self.paused:
-            body.set_text('\n'.join(self.out_data.split('\n')[self.scroll_line:][:height]))
+            body.set_text(b'\n'.join(self.out_data.split(b'\n')[self.scroll_line:][:height]))
         else:
-            body.set_text('\n'.join(self.last_out_data.split('\n')[self.scroll_line:][:height]))
+            body.set_text(b'\n'.join(self.last_out_data.split(b'\n')[self.scroll_line:][:height]))
 
 class BetterEdit(urwid_readline.ReadlineEdit):
     def keypress(self, size, key):
@@ -212,11 +211,11 @@ class BetterEdit(urwid_readline.ReadlineEdit):
             if key == 'up':
                 jq_man.scroll_line = max(0, jq_man.scroll_line - 1)
             elif key == 'down':
-                jq_man.scroll_line = min(max(len(jq_man.out_data.split('\n')) - int(loop.screen_size[1] / 2), 0), jq_man.scroll_line + 1)
+                jq_man.scroll_line = min(max(len(jq_man.out_data.split(b'\n')) - int(loop.screen_size[1] / 2), 0), jq_man.scroll_line + 1)
             elif key == 'page up':
                 jq_man.scroll_line = max(0, jq_man.scroll_line - int(loop.screen_size[1] / 2))
             elif key == 'page down':
-                jq_man.scroll_line = min(max(len(jq_man.out_data.split('\n')) - int(loop.screen_size[1] / 2), 0), jq_man.scroll_line + int(loop.screen_size[1] / 2))
+                jq_man.scroll_line = min(max(len(jq_man.out_data.split(b'\n')) - int(loop.screen_size[1] / 2), 0), jq_man.scroll_line + int(loop.screen_size[1] / 2))
             jq_man.update_body()
         else:
             return super().keypress(size, key)
@@ -288,7 +287,7 @@ if __name__ == '__main__':
         try:
             orig_stdout.write(
                 ('{}\njqed: jq editor ' + VERSION + ' https://github.com/wazzaps/jqed\n' +
-                'jqed: | jq {}\n').format(jq_man.out_data, line).encode())
+                'jqed: | jq {}\n').format(jq_man.out_data.decode(), line).encode())
         except BrokenPipeError:
             sys.stderr.write('jq {}\n'.format(line))
         exit(0)
